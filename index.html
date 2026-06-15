@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haqiqiy Real-Time ID Chat</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background: #e5ddd5; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .chat-container { width: 100%; max-width: 450px; height: 90vh; background: #fff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
+        .chat-header { background: #075e54; color: white; padding: 15px; text-align: center; }
+        .chat-header h2 { font-size: 18px; margin-bottom: 5px; }
+        .my-id-box { background: #128c7e; padding: 5px 10px; border-radius: 20px; display: inline-block; font-size: 14px; }
+        .my-id-box span { font-weight: bold; color: #fff; }
+        .connect-area { background: #f6f6f6; padding: 10px; display: flex; gap: 8px; border-bottom: 1px solid #ddd; }
+        .connect-area input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 14px; }
+        .connect-area button { background: #075e54; color: white; border: none; padding: 0 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        .chat-messages { flex: 1; padding: 15px; background: #efeae2; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 15px; line-height: 1.4; position: relative; word-wrap: break-word; }
+        .message .sender-tag { font-size: 11px; font-weight: bold; color: #075e54; display: block; margin-bottom: 3px; }
+        .message.incoming { background: white; align-self: flex-start; border-top-left-radius: 0; }
+        .message.outgoing { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 0; }
+        .message.system { background: #ffeeba; color: #856404; align-self: center; font-size: 12px; max-width: 90%; border-radius: 4px; text-align: center; }
+        .chat-input-area { background: #f0f0f0; padding: 10px; display: flex; gap: 8px; align-items: center; }
+        .chat-input-area input { flex: 1; padding: 12px; border: none; border-radius: 25px; outline: none; font-size: 15px; }
+        .chat-input-area button { background: #075e54; color: white; border: none; width: 45px; height: 45px; border-radius: 50%; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <h2>Jonli Guruhli Chat</h2>
+        <div class="my-id-box">Sizning ID: <span id="myIdDisplay">Yaratilmoqda...</span></div>
+    </div>
+
+    <div class="connect-area">
+        <input type="text" id="friendIdInput" placeholder="Do'stingizni ID sini kiriting...">
+        <button onclick="connectToFriend()">Ulanish</button>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="message system">Tarmoqqa ulanmoqda...</div>
+    </div>
+
+    <div class="chat-input-area">
+        <input type="text" id="messageInput" placeholder="Xabar yozing..." onkeypress="checkEnter(event)">
+        <button onclick="sendMessage()">➤</button>
+    </div>
+</div>
+
+<script>
+    // 1. Tasodifiy 6 xonali ID yaratamiz (Boshiga harf qo'shamiz, PeerJS adashmasligi uchun)
+    const rawId = Math.floor(100000 + Math.random() * 900000).toString();
+    const myId = "id-" + rawId;
+    document.getElementById('myIdDisplay').innerText = rawId;
+
+    // Barcha faol ulanishlarni (do'stlarni) saqlash
+    let connections = []; 
+
+    // PeerJS obyektini ishga tushiramiz (bepul bulutli serverga ulanadi)
+    const peer = new Peer(myId);
+
+    peer.on('open', (id) => {
+        document.getElementById('chatMessages').innerHTML = `<div class="message system">Tarmoqqa muvaffaqiyatli ulandingiz! ID raqamingizni do'stingizga yuboring.</div>`;
+    });
+
+    // 2. Tashqaridan do'stingiz sizga ulanmoqchi bo'lganida (Siz "eshituvchi" ekansiz)
+    peer.on('connection', (conn) => {
+        setupConnection(conn);
+    });
+
+    // 3. O'zingiz tugmani bosib do'stingizga ulanishingiz
+    function connectToFriend() {
+        const friendRawId = document.getElementById('friendIdInput').value.trim();
+        const friendTargetId = "id-" + friendRawId;
+
+        if (!friendRawId) return alert("ID kiriting!");
+        if (friendTargetId === myId) return alert("O'zingizga ulana olmaysiz!");
+
+        // Allaqachon ulangan bo'lsa tekshirish
+        if (connections.some(c => c.peer === friendTargetId)) {
+            return alert("Bu foydalanuvchi bilan allaqachon ulandingiz!");
+        }
+
+        if (connections.length >= 3) {
+            return alert("Maksimal 4 kishi (siz bilan birga) gaplashishi mumkin!");
+        }
+
+        showSystemMessage(`ID: ${friendRawId} ga ulanish so'rovi yuborildi...`);
+        
+        // Do'stga ulanish hosil qilish
+        const conn = peer.connect(friendTargetId);
+        setupConnection(conn);
+        document.getElementById('friendIdInput').value = '';
+    }
+
+    // Ulanish sozlamalari (xabar kelishi, uzilishini nazorat qilish)
+    function setupConnection(conn) {
+        conn.on('open', () => {
+            connections.push(conn);
+            const cleanFriendId = conn.peer.replace('id-', '');
+            showSystemMessage(`Foydalanuvchi ${cleanFriendId} chatga qo'shildi!`);
+        });
+
+        // Xabar kelganda
+        conn.on('data', (data) => {
+            // Agar guruhdagi boshqalardan kelgan xabar bo'lsa (yo'naltirilgan xabar)
+            const displaySender = data.senderId.replace('id-', '');
+            appendMessage(displaySender, data.text, 'incoming');
+        });
+
+        conn.on('close', () => {
+            const cleanFriendId = conn.peer.replace('id-', '');
+            showSystemMessage(`Foydalanuvchi ${cleanFriendId} chatni tark etdi.`);
+            connections = connections.filter(c => c.peer !== conn.peer);
+        });
+    }
+
+    // 4. Xabar yuborish
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const text = input.value.trim();
+        if (text === "") return;
+
+        // O'zimizga xabarni chiqarish
+        appendMessage('Siz', text, 'outgoing');
+        input.value = '';
+
+        // Ulangan barcha do'stlarga xabarni tarqatish
+        connections.forEach(conn => {
+            if (conn.open) {
+                conn.send({
+                    senderId: myId,
+                    text: text
+                });
+            }
+        });
+    }
+
+    function checkEnter(event) {
+        if (event.key === "Enter") sendMessage();
+    }
+
+    function appendMessage(sender, text, type) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', type);
+
+        if (type === 'incoming') {
+            messageDiv.innerHTML = `<span class="sender-tag">ID: ${sender}</span>${text}`;
+        } else {
+            messageDiv.innerHTML = text;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showSystemMessage(text) {
+        const chatMessages = document.getElementById('chatMessages');
+        const msgDiv = document.createElement('div');
+        msgDiv.classList.add('message', 'system');
+        msgDiv.innerText = text;
+        chatMessages.appendChild(msgDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+</script>
+
+</body>
+</html>
